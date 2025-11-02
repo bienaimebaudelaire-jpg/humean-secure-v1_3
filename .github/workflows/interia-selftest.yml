@@ -24,14 +24,23 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install dependencies
+        run: pip install requests
+
       - name: Call 3 IA directly
+        id: interia
         shell: python
         run: |
-          import os, sys, json, requests
+          import os, sys, json, requests, traceback
 
           question = "Healthcheck HUMEAN inter-IA : répond 'OK'."
           results = {}
           detail = {}
+          ok_count = 0
+
+          def log_err(name, err):
+              print(f"{name} ERROR:", err)
+              detail[f"{name}_error"] = str(err)
 
           # 1) OpenAI
           openai_key = os.getenv("OPENAI_API_KEY")
@@ -49,13 +58,14 @@ jobs:
                   )
                   r.raise_for_status()
                   results["openai"] = True
+                  ok_count += 1
                   detail["openai"] = r.json()
               except Exception as e:
                   results["openai"] = False
-                  detail["openai_error"] = str(e)
+                  log_err("openai", e)
           else:
               results["openai"] = False
-              detail["openai_error"] = "missing secret"
+              log_err("openai", "missing secret")
 
           # 2) DeepSeek
           deepseek_key = os.getenv("DEEPSEEK_API_KEY")
@@ -73,13 +83,14 @@ jobs:
                   )
                   r.raise_for_status()
                   results["deepseek"] = True
+                  ok_count += 1
                   detail["deepseek"] = r.json()
               except Exception as e:
                   results["deepseek"] = False
-                  detail["deepseek_error"] = str(e)
+                  log_err("deepseek", e)
           else:
               results["deepseek"] = False
-              detail["deepseek_error"] = "missing secret"
+              log_err("deepseek", "missing secret")
 
           # 3) Grok / xAI
           grok_key = os.getenv("GROK_API_KEY")
@@ -97,32 +108,38 @@ jobs:
                   )
                   r.raise_for_status()
                   results["grok"] = True
+                  ok_count += 1
                   detail["grok"] = r.json()
               except Exception as e:
                   results["grok"] = False
-                  detail["grok_error"] = str(e)
+                  log_err("grok", e)
           else:
               results["grok"] = False
-              detail["grok_error"] = "missing secret"
+              log_err("grok", "missing secret")
 
           print("=== HUMEAN inter-IA status ===")
-          ok = True
           for name, status in results.items():
               if status:
                   print(f"[OK] {name} a répondu")
               else:
                   print(f"[KO] {name} n'a pas répondu")
-                  ok = False
 
-          # dump pour debug
+          # on écrit le debug quoi qu'il arrive
           with open("interia_debug.json", "w", encoding="utf-8") as f:
-              json.dump(detail, f, ensure_ascii=False, indent=2)
+              json.dump(
+                  {
+                      "results": results,
+                      "detail": detail
+                  },
+                  f,
+                  ensure_ascii=False,
+                  indent=2
+              )
 
-          # politique HUMEAN stricte : on veut au moins 2 IA OK
-          nb_ok = sum(1 for v in results.values() if v)
-          if nb_ok < 2:
+          # politique HUMEAN : au moins 2 IA sur 3
+          if ok_count < 2:
               sys.exit(1)
-    # on attache le debug pour que tu puisses le voir dans l'UI
+
       - name: Upload debug
         if: always()
         uses: actions/upload-artifact@v4
