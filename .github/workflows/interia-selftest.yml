@@ -1,0 +1,55 @@
+name: HUMEAN inter-IA selftest
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "modules/interIA/**"
+      - ".github/workflows/interia-selftest.yml"
+
+jobs:
+  interia-check:
+    runs-on: ubuntu-latest
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run inter-IA healthcheck
+        run: |
+          python modules/interIA/ask_all_models.py "healthcheck humean inter-ia" > interia_raw.json
+          python modules/interIA/merge_responses.py interia_raw.json > interia_merged.json
+
+      - name: Analyse result
+        run: |
+          import json, sys
+          data = json.load(open("interia_raw.json","r",encoding="utf-8"))
+          ok = True
+          for name, resp in data.get("responses", {}).items():
+            if resp:
+              print(f"[OK] {name} a répondu")
+            else:
+              print(f"[KO] {name} n'a pas répondu")
+              ok = False
+          if not ok:
+            sys.exit(1)
+        shell: python
+
+      - name: Upload merged answer
+        uses: actions/upload-artifact@v4
+        with:
+          name: interia-merged
+          path: interia_merged.json
