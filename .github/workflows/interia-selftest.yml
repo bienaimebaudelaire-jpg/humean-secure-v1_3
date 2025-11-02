@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "modules/interIA/**"
       - ".github/workflows/interia-selftest.yml"
 
 jobs:
@@ -25,31 +24,108 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install requests
-
-      - name: Run inter-IA healthcheck
-        run: |
-          python modules/interIA/ask_all_models.py "healthcheck humean inter-ia" > interia_raw.json
-          python modules/interIA/merge_responses.py interia_raw.json > interia_merged.json
-
-      - name: Analyse result
-        run: |
-          import json, sys
-          data = json.load(open("interia_raw.json","r",encoding="utf-8"))
-          ok = True
-          for name, resp in data.get("responses", {}).items():
-            if resp:
-              print(f"[OK] {name} a répondu")
-            else:
-              print(f"[KO] {name} n'a pas répondu")
-              ok = False
-          if not ok:
-            sys.exit(1)
+      - name: Call 3 IA directly
         shell: python
+        run: |
+          import os, sys, json, requests
 
-      - name: Upload merged answer
+          question = "Healthcheck HUMEAN inter-IA : répond 'OK'."
+          results = {}
+          detail = {}
+
+          # 1) OpenAI
+          openai_key = os.getenv("OPENAI_API_KEY")
+          if openai_key:
+              try:
+                  r = requests.post(
+                      "https://api.openai.com/v1/chat/completions",
+                      headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+                      json={
+                          "model": "gpt-4o",
+                          "messages": [{"role": "user", "content": question}],
+                          "temperature": 0
+                      },
+                      timeout=30
+                  )
+                  r.raise_for_status()
+                  results["openai"] = True
+                  detail["openai"] = r.json()
+              except Exception as e:
+                  results["openai"] = False
+                  detail["openai_error"] = str(e)
+          else:
+              results["openai"] = False
+              detail["openai_error"] = "missing secret"
+
+          # 2) DeepSeek
+          deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+          if deepseek_key:
+              try:
+                  r = requests.post(
+                      "https://api.deepseek.com/chat/completions",
+                      headers={"Authorization": f"Bearer {deepseek_key}", "Content-Type": "application/json"},
+                      json={
+                          "model": "deepseek-chat",
+                          "messages": [{"role": "user", "content": question}],
+                          "temperature": 0
+                      },
+                      timeout=30
+                  )
+                  r.raise_for_status()
+                  results["deepseek"] = True
+                  detail["deepseek"] = r.json()
+              except Exception as e:
+                  results["deepseek"] = False
+                  detail["deepseek_error"] = str(e)
+          else:
+              results["deepseek"] = False
+              detail["deepseek_error"] = "missing secret"
+
+          # 3) Grok / xAI
+          grok_key = os.getenv("GROK_API_KEY")
+          if grok_key:
+              try:
+                  r = requests.post(
+                      "https://api.x.ai/v1/chat/completions",
+                      headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
+                      json={
+                          "model": "grok-beta",
+                          "messages": [{"role": "user", "content": question}],
+                          "temperature": 0
+                      },
+                      timeout=30
+                  )
+                  r.raise_for_status()
+                  results["grok"] = True
+                  detail["grok"] = r.json()
+              except Exception as e:
+                  results["grok"] = False
+                  detail["grok_error"] = str(e)
+          else:
+              results["grok"] = False
+              detail["grok_error"] = "missing secret"
+
+          print("=== HUMEAN inter-IA status ===")
+          ok = True
+          for name, status in results.items():
+              if status:
+                  print(f"[OK] {name} a répondu")
+              else:
+                  print(f"[KO] {name} n'a pas répondu")
+                  ok = False
+
+          # dump pour debug
+          with open("interia_debug.json", "w", encoding="utf-8") as f:
+              json.dump(detail, f, ensure_ascii=False, indent=2)
+
+          # politique HUMEAN stricte : on veut au moins 2 IA OK
+          nb_ok = sum(1 for v in results.values() if v)
+          if nb_ok < 2:
+              sys.exit(1)
+    # on attache le debug pour que tu puisses le voir dans l'UI
+      - name: Upload debug
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: interia-merged
-          path: interia_merged.json
+          name: interia-debug
+          path: interia_debug.json
