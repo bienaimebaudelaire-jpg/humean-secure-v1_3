@@ -254,3 +254,35 @@ jobs:
           name: humean-health-summary
           path: |
             humean_health_summary.json
+
+  ethical-validation:
+    runs-on: [self-hosted, windows]
+    needs: health-summary
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Download health report
+        uses: actions/download-artifact@v4
+        with:
+          name: humean-health-summary
+          path: ./health-data
+          
+      - name: Validate HUMEAN ethical compliance
+        shell: pwsh
+        run: |
+          $healthData = Get-Content "./health-data/humean_health_summary.json" | ConvertFrom-Json
+          $decisionData = @{
+            system_health = $healthData.overall_health
+            health_percentage = $healthData.health_percentage
+            providers_operational = $healthData.providers_healthy
+            timestamp = $healthData.timestamp
+          } | ConvertTo-Json -Compress
+          
+          .\scripts\validate_tpse_compliance.ps1 -DecisionData $decisionData -Context "system_health_check"
+
+      - name: Upload ethical validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: humean-ethical-validation
+          path: ./log/tpse_validation_*.json
