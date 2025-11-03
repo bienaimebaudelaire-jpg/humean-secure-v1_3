@@ -200,3 +200,57 @@ jobs:
           path: |
             interia_debug_${{ matrix.provider }}.json
             humean_ledger_${{ matrix.provider }}.json
+
+  health-summary:
+    runs-on: [self-hosted, windows]
+    needs: interia-check
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          
+      - name: Generate HUMEAN health report
+        shell: pwsh
+        run: |
+          $artifacts = Get-ChildItem "./artifacts" -Recurse -Filter "humean_ledger_*.json"
+          $providers = @()
+          $healthyCount = 0
+          $totalCount = 0
+          
+          foreach ($artifact in $artifacts) {
+              $data = Get-Content $artifact.FullName | ConvertFrom-Json
+              $providers += $data
+              $totalCount++
+              if ($data.ok_for_humean -eq $true) {
+                  $healthyCount++
+              }
+          }
+          
+          $healthPercentage = if ($totalCount -gt 0) { [math]::Round(($healthyCount / $totalCount) * 100, 2) } else { 0 }
+          $overallStatus = if ($healthPercentage -eq 100) { "optimal" } elseif ($healthPercentage -ge 66) { "degraded" } else { "critical" }
+          
+          $summary = [ordered]@{
+              timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+              workflow_run = "${{ github.run_id }}"
+              overall_health = $overallStatus
+              health_percentage = $healthPercentage
+              providers_healthy = $healthyCount
+              providers_total = $totalCount
+              providers = $providers
+          }
+          
+          $summary | ConvertTo-Json -Depth 6 | Out-File "humean_health_summary.json" -Encoding UTF8
+          Write-Host "📊 HUMEAN Health: $overallStatus ($healthPercentage%)"
+          
+          if ($overallStatus -eq "critical") {
+              Write-Host "🚨 ALERTE: Santé HUMEAN critique - intervention nécessaire"
+              exit 1
+          }
+
+      - name: Upload health summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: humean-health-summary
+          path: |
+            humean_health_summary.json
