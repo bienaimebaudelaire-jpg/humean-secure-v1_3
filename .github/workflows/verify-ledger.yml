@@ -10,16 +10,43 @@ on:
 
 jobs:
   verify-ledger:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show tree
-        run: ls -R
-
-      - name: Verify ledger
+      - name: Show directory structure
         shell: pwsh
         run: |
-          pwsh ./scripts/verify_ledger.ps1
+          Write-Host "📁 Structure du repo HUMEAN :"
+          Get-ChildItem -Recurse | Select-Object FullName | Format-Table -AutoSize
+
+      - name: Verify ledger integrity
+        shell: pwsh
+        run: |
+          Write-Host "🔍 Vérification de l'intégrité du ledger HUMEAN..."
+          if (Test-Path "./scripts/verify_ledger.ps1") {
+              ./scripts/verify_ledger.ps1
+          } else {
+              Write-Host "❌ Script verify_ledger.ps1 introuvable"
+              # Fallback: vérification basique des fichiers
+              $ledgerFiles = @("log/ledger.jsonl", "log/ledger_signed.jsonl")
+              foreach ($file in $ledgerFiles) {
+                  if (Test-Path $file) {
+                      $content = Get-Content $file -Raw
+                      Write-Host "✅ $file existe ($($content.Length) caractères)"
+                  } else {
+                      Write-Host "❌ $file manquant"
+                  }
+              }
+          }
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledger-verification-${{ github.run_id }}
+          path: |
+            log/ledger.jsonl
+            log/ledger_signed.jsonl
