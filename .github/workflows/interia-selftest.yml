@@ -11,7 +11,7 @@ jobs:
     runs-on: [self-hosted, windows]
     strategy:
       matrix:
-        provider: [openai, deepseek, grok]
+        provider: [openai, deepseek, grok]  # Tous les 3 providers réactivés
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -236,7 +236,7 @@ jobs:
               health_percentage = $healthPercentage
               providers_healthy = $healthyCount
               providers_total = $totalCount
-              providers = $providers
+              humean_health_check = $providers
           }
           
           $summary | ConvertTo-Json -Depth 6 | Out-File "humean_health_summary.json" -Encoding UTF8
@@ -267,7 +267,7 @@ jobs:
           $data = Get-Content $summary.FullName -Raw | ConvertFrom-Json
           
           # Règle 1: Vérifier consensus providers (min 2/3 OK)
-          $providers = $data.providers
+          $providers = $data.humean_health_check
           $ok = ($providers | Where-Object { $_.ok_for_humean }).Count
           
           if ($ok -lt 2) {
@@ -293,6 +293,18 @@ jobs:
           }
           
           Write-Host "✅ Validation éthique TPSE: SUCCÈS - Tous les garde-fous respectés"
+
+      - name: Compute dynamic weights (runtime)
+        shell: pwsh
+        run: |
+          .\tools\interIA\dynamic_weights.ps1 -DebugDir ".\artifacts" -OutPath ".\out\interia\runtime\policy_weights_runtime.json"
+
+      - name: Upload dynamic weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: policy-weights-runtime-${{ github.run_id }}
+          path: out/interia/runtime/policy_weights_runtime.json
 
       - name: Upload health summary
         uses: actions/upload-artifact@v4
