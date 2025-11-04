@@ -18,7 +18,7 @@ jobs:
 
       - name: Test ${{ matrix.provider }} via PowerShell
         id: test-provider
-        shell: pwsh
+        shell: powershell
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -169,7 +169,7 @@ jobs:
           }
 
       - name: Export to HUMEAN Ledger
-        shell: pwsh
+        shell: powershell
         run: |
           $provider = "${{ matrix.provider }}"
           $debugFile = "interia_debug_$provider.json"
@@ -210,7 +210,7 @@ jobs:
           path: ./artifacts
           
       - name: Generate HUMEAN health report
-        shell: pwsh
+        shell: powershell
         run: |
           $artifacts = Get-ChildItem "./artifacts" -Recurse -Filter "humean_ledger_*.json"
           $providers = @()
@@ -248,7 +248,7 @@ jobs:
           }
 
       - name: Ethical validation (TPSE v1.0)
-        shell: pwsh
+        shell: powershell
         run: |
           $tpse = "policies/tpse_directive_v1_0.json"
           if (!(Test-Path $tpse)) {
@@ -295,7 +295,7 @@ jobs:
           Write-Host "✅ Validation éthique TPSE: SUCCÈS - Tous les garde-fous respectés"
 
       - name: Compute dynamic weights (runtime)
-        shell: pwsh
+        shell: powershell
         run: |
           .\tools\interIA\dynamic_weights.ps1 -DebugDir ".\artifacts" -OutPath ".\out\interia\runtime\policy_weights_runtime.json"
 
