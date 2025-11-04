@@ -18,6 +18,52 @@ jobs:
 
       - name: Test ${{ matrix.provider }} via PowerShell
         id: test-provider
+        - name: Ethical validation (TPSE v1.0)
+  shell: pwsh
+  run: |
+    $tpse = "policies/tpse_directive_v1_0.json"
+    if (!(Test-Path $tpse)) {
+      Write-Host "ℹ️ TPSE directive absente → validation éthique skipped"
+      exit 0
+    }
+    
+    $directive = Get-Content $tpse -Raw | ConvertFrom-Json
+    $summary = Get-ChildItem -Recurse -Filter "humean_health_summary.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    
+    if (-not $summary) {
+      Write-Error "❌ Aucun humean_health_summary.json trouvé pour valider l'éthique."
+      exit 1
+    }
+    
+    $data = Get-Content $summary.FullName -Raw | ConvertFrom-Json
+    
+    # Règle 1: Vérifier consensus providers (min 2/3 OK)
+    $providers = $data.humean_health_check
+    $ok = ($providers | Where-Object { $_.ok_for_humean }).Count
+    
+    if ($ok -lt 2) {
+      Write-Error "❌ Validation éthique: échec (moins de 2/3 providers en accord)."
+      exit 1
+    }
+    
+    # Règle 2: Vérifier mots-clés interdits
+    if ($directive.forbidden_keywords) {
+      $merged = Get-ChildItem -Recurse -Filter "*_merged_*.json" -Path ".\out\interia\merged" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+      
+      if ($merged) {
+        $m = Get-Content $merged.FullName -Raw | ConvertFrom-Json
+        $text = ($m.final_answer + " " + ($m.raw | ConvertTo-Json -Compress))
+        
+        foreach ($kw in $directive.forbidden_keywords) {
+          if ($text -match [regex]::Escape($kw)) {
+            Write-Error "❌ Validation éthique: mot-clé interdit trouvé -> $kw"
+            exit 1
+          }
+        }
+      }
+    }
+    
+    Write-Host "✅ Validation éthique TPSE: SUCCÈS - Tous les garde-fous respectés"
         shell: pwsh
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
