@@ -213,39 +213,39 @@ jobs:
         shell: powershell
         run: |
           $artifacts = Get-ChildItem "./artifacts" -Recurse -Filter "humean_ledger_*.json"
-          $providers = @()
-          $healthyCount = 0
-          $totalCount = 0
-          
-          foreach ($artifact in $artifacts) {
-              $data = Get-Content $artifact.FullName | ConvertFrom-Json
-              $providers += $data
-              $totalCount++
-              if ($data.ok_for_humean -eq $true) {
-                  $healthyCount++
-              }
-          }
-          
-          $healthPercentage = if ($totalCount -gt 0) { [math]::Round(($healthyCount / $totalCount) * 100, 2) } else { 0 }
-          $overallStatus = if ($healthPercentage -eq 100) { "optimal" } elseif ($healthPercentage -ge 66) { "degraded" } else { "critical" }
-          
-          $summary = [ordered]@{
-              timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-              workflow_run = "${{ github.run_id }}"
-              overall_health = $overallStatus
-              health_percentage = $healthPercentage
-              providers_healthy = $healthyCount
-              providers_total = $totalCount
-              humean_health_check = $providers
-          }
-          
-          $summary | ConvertTo-Json -Depth 6 | Out-File "humean_health_summary.json" -Encoding UTF8
-          Write-Host "📊 HUMEAN Health: $overallStatus ($healthPercentage%)"
-          
-          if ($overallStatus -eq "critical") {
-              Write-Host "🚨 ALERTE: Santé HUMEAN critique - intervention nécessaire"
-              exit 1
-          }
+$providers = @()
+$healthyCount = 0
+$totalCount = 0
+
+foreach ($artifact in $artifacts) {
+    $data = Get-Content $artifact.FullName | ConvertFrom-Json
+    $providers += $data
+    $totalCount++
+    if ($data.ok_for_humean -eq $true) {
+        $healthyCount++
+    }
+}
+
+$healthPercentage = if ($totalCount -gt 0) { [math]::Round(($healthyCount / $totalCount) * 100, 2) } else { 0 }
+$overallStatus = if ($healthPercentage -eq 100) { "optimal" } elseif ($healthPercentage -ge 66) { "degraded" } else { "critical" }
+
+$summary = [ordered]@{
+    timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    workflow_run = "${{ github.run_id }}"
+    overall_health = $overallStatus
+    health_percentage = $healthPercentage
+    providers_healthy = $healthyCount
+    providers_total = $totalCount
+    humean_health_check = $providers
+}
+
+$summary | ConvertTo-Json -Depth 6 | Out-File "humean_health_summary.json" -Encoding UTF8
+Write-Host "HUMEAN Health: $overallStatus ($healthPercentage percent)"
+
+if ($overallStatus -eq "critical") {
+    Write-Host "ALERTE: Sante HUMEAN critique - intervention necessaire"
+    exit 1
+}
 
       - name: Ethical validation (TPSE v1.0)
         shell: powershell
