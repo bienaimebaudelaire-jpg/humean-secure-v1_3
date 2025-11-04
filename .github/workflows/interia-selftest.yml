@@ -11,7 +11,7 @@ jobs:
     runs-on: [self-hosted, windows]
     strategy:
       matrix:
-        provider: [deepseek, grok]  # OpenAI retiré temporairement
+        provider: [deepseek, grok]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,12 +20,11 @@ jobs:
         id: test-provider
         shell: powershell
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
         run: |
           $provider = "${{ matrix.provider }}"
-          $question = "HUMEAN selftest: répond exactement HUMEAN_CONNECTION_OK."
+          $question = "HUMEAN selftest: repond exactement HUMEAN_CONNECTION_OK."
           $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
 
           $result = [ordered]@{
@@ -51,28 +50,7 @@ jobs:
           $startTime = Get-Date
 
           try {
-              if ($provider -eq "openai") {
-                  $key = $env:OPENAI_API_KEY
-                  if (-not $key) {
-                      $result.status = "missing_secret"
-                      $result | ConvertTo-Json -Depth 6 | Out-File "interia_debug_$provider.json" -Encoding UTF8
-                      exit 1
-                  }
-
-                  $headers["Authorization"] = "Bearer $key"
-                  $body = @{
-                      model     = "gpt-4o"
-                      messages  = @(@{role="user";content=$question})
-                      temperature = 0
-                  } | ConvertTo-Json
-
-                  $response = Invoke-RestMethod -Uri "https://api.openai.com/v1/chat/completions" `
-                                                -Method Post -Headers $headers -Body $body -TimeoutSec 30
-                  $result.http_code     = 200
-                  $result.status        = "ok"
-                  $result.ok_for_humean = $true
-              }
-              elseif ($provider -eq "deepseek") {
+              if ($provider -eq "deepseek") {
                   $key = $env:DEEPSEEK_API_KEY
                   if (-not $key) {
                       $result.status = "missing_secret"
@@ -188,7 +166,7 @@ jobs:
               }
               $ledgerFile = "humean_ledger_$provider.json"
               $ledgerEntry | ConvertTo-Json -Depth 6 | Out-File $ledgerFile -Encoding UTF8
-              Write-Host "✅ Ledger export: $ledgerFile"
+              Write-Host "Ledger export: $ledgerFile"
           }
 
       - name: Upload artifacts
@@ -213,46 +191,46 @@ jobs:
         shell: powershell
         run: |
           $artifacts = Get-ChildItem "./artifacts" -Recurse -Filter "humean_ledger_*.json"
-$providers = @()
-$healthyCount = 0
-$totalCount = 0
-
-foreach ($artifact in $artifacts) {
-    $data = Get-Content $artifact.FullName | ConvertFrom-Json
-    $providers += $data
-    $totalCount++
-    if ($data.ok_for_humean -eq $true) {
-        $healthyCount++
-    }
-}
-
-$healthPercentage = if ($totalCount -gt 0) { [math]::Round(($healthyCount / $totalCount) * 100, 2) } else { 0 }
-$overallStatus = if ($healthPercentage -eq 100) { "optimal" } elseif ($healthPercentage -ge 66) { "degraded" } else { "critical" }
-
-$summary = [ordered]@{
-    timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-    workflow_run = "${{ github.run_id }}"
-    overall_health = $overallStatus
-    health_percentage = $healthPercentage
-    providers_healthy = $healthyCount
-    providers_total = $totalCount
-    humean_health_check = $providers
-}
-
-$summary | ConvertTo-Json -Depth 6 | Out-File "humean_health_summary.json" -Encoding UTF8
-Write-Host "HUMEAN Health: $overallStatus ($healthPercentage percent)"
-
-if ($overallStatus -eq "critical") {
-    Write-Host "ALERTE: Sante HUMEAN critique - intervention necessaire"
-    exit 1
-}
+          $providers = @()
+          $healthyCount = 0
+          $totalCount = 0
+          
+          foreach ($artifact in $artifacts) {
+              $data = Get-Content $artifact.FullName | ConvertFrom-Json
+              $providers += $data
+              $totalCount++
+              if ($data.ok_for_humean -eq $true) {
+                  $healthyCount++
+              }
+          }
+          
+          $healthPercentage = if ($totalCount -gt 0) { [math]::Round(($healthyCount / $totalCount) * 100, 2) } else { 0 }
+          $overallStatus = if ($healthPercentage -eq 100) { "optimal" } elseif ($healthPercentage -ge 66) { "degraded" } else { "critical" }
+          
+          $summary = [ordered]@{
+              timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+              workflow_run = "${{ github.run_id }}"
+              overall_health = $overallStatus
+              health_percentage = $healthPercentage
+              providers_healthy = $healthyCount
+              providers_total = $totalCount
+              humean_health_check = $providers
+          }
+          
+          $summary | ConvertTo-Json -Depth 6 | Out-File "humean_health_summary.json" -Encoding UTF8
+          Write-Host "HUMEAN Health: $overallStatus ($healthPercentage percent)"
+          
+          if ($overallStatus -eq "critical") {
+              Write-Host "ALERTE: Sante HUMEAN critique - intervention necessaire"
+              exit 1
+          }
 
       - name: Ethical validation (TPSE v1.0)
         shell: powershell
         run: |
           $tpse = "policies/tpse_directive_v1_0.json"
           if (!(Test-Path $tpse)) {
-            Write-Host "ℹ️ TPSE directive absente → validation éthique skipped"
+            Write-Host "TPSE directive absente - validation ethique skipped"
             exit 0
           }
           
@@ -260,22 +238,22 @@ if ($overallStatus -eq "critical") {
           $summary = Get-ChildItem -Recurse -Filter "humean_health_summary.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           
           if (-not $summary) {
-            Write-Error "❌ Aucun humean_health_summary.json trouvé pour valider l'éthique."
+            Write-Error "Aucun humean_health_summary.json trouve pour valider l'ethique."
             exit 1
           }
           
           $data = Get-Content $summary.FullName -Raw | ConvertFrom-Json
           
-          # Règle 1: Vérifier consensus providers (min 2/3 OK)
+          # Regle 1: Verifier consensus providers (min 2/3 OK)
           $providers = $data.humean_health_check
           $ok = ($providers | Where-Object { $_.ok_for_humean }).Count
           
           if ($ok -lt 2) {
-            Write-Error "❌ Validation éthique: échec (moins de 2/3 providers en accord)."
+            Write-Error "Validation ethique: echec (moins de 2/3 providers en accord)."
             exit 1
           }
           
-          # Règle 2: Vérifier mots-clés interdits
+          # Regle 2: Verifier mots-cles interdits
           if ($directive.forbidden_keywords) {
             $merged = Get-ChildItem -Recurse -Filter "*_merged_*.json" -Path ".\out\interia\merged" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
             
@@ -285,14 +263,14 @@ if ($overallStatus -eq "critical") {
               
               foreach ($kw in $directive.forbidden_keywords) {
                 if ($text -match [regex]::Escape($kw)) {
-                  Write-Error "❌ Validation éthique: mot-clé interdit trouvé -> $kw"
+                  Write-Error "Validation ethique: mot-cle interdit trouve -> $kw"
                   exit 1
                 }
               }
             }
           }
           
-          Write-Host "✅ Validation éthique TPSE: SUCCÈS - Tous les garde-fous respectés"
+          Write-Host "Validation ethique TPSE: SUCCES - Tous les garde-fous respectes"
 
       - name: Compute dynamic weights (runtime)
         shell: powershell
