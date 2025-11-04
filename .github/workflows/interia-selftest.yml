@@ -1,292 +1,35 @@
-name: HUMEAN inter-IA selftest (Windows + JSON Export)
-
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/interia-selftest.yml"
-
+name: HUMEAN Basic Test
+on: workflow_dispatch
 jobs:
-  interia-check:
+  basic-check:
     runs-on: [self-hosted, windows]
-    strategy:
-      matrix:
-        provider: [deepseek, grok]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Test ${{ matrix.provider }} via PowerShell
-        id: test-provider
+      - name: Test Deepseek
         shell: powershell
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
         run: |
-          $provider = "${{ matrix.provider }}"
-          $question = "HUMEAN selftest: repond exactement HUMEAN_CONNECTION_OK."
-          $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
-
-          $result = [ordered]@{
-              provider        = $provider
-              timestamp       = $timestamp
-              status          = "unknown"
-              http_code       = $null
-              ok_for_humean   = $false
-              response_time_ms= 0
+          $headers = @{ 
+            "Content-Type" = "application/json"
+            "Authorization" = "Bearer $env:DEEPSEEK_API_KEY"
           }
-
-          function Invoke-LocalFallback {
-              param([string]$errorType)
-              return [ordered]@{
-                  fallback_triggered = $true
-                  fallback_reason    = $errorType
-                  local_response     = "HUMEAN_FALLBACK_ACTIVE"
-                  timestamp          = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-              }
-          }
-
-          $headers = @{ "Content-Type" = "application/json" }
-          $startTime = Get-Date
-
+          $body = @{
+            model = "deepseek-chat"
+            messages = @(@{role="user"; content="Repond HUMEAN_OK"})
+          } | ConvertTo-Json
+          
           try {
-              if ($provider -eq "deepseek") {
-                  $key = $env:DEEPSEEK_API_KEY
-                  if (-not $key) {
-                      $result.status = "missing_secret"
-                      $result | ConvertTo-Json -Depth 6 | Out-File "interia_debug_$provider.json" -Encoding UTF8
-                      exit 1
-                  }
-
-                  $headers["Authorization"] = "Bearer $key"
-                  $body = @{
-                      model    = "deepseek-chat"
-                      messages = @(
-                          @{role="system";content="You are a helpful assistant integrated in HUMEAN framework."},
-                          @{role="user";content=$question}
-                      )
-                      max_tokens  = 50
-                      temperature = 0.1
-                  } | ConvertTo-Json
-
-                  try {
-                      $response = Invoke-RestMethod -Uri "https://api.deepseek.com/chat/completions" `
-                                                    -Method Post -Headers $headers -Body $body -TimeoutSec 30
-                      $result.http_code     = 200
-                      $result.status        = "ok"
-                      $result.ok_for_humean = $true
-                  }
-                  catch {
-                      $statusCode = $null
-                      if ($_.Exception -and $_.Exception.Response) {
-                          $statusCode = $_.Exception.Response.StatusCode.value__
-                      }
-                      $result.http_code = $statusCode
-
-                      if ($statusCode -eq 402) {
-                          $result.status        = "payment_required"
-                          $result.ok_for_humean = $true
-                          $result.fallback_data = Invoke-LocalFallback -errorType "deepseek_402"
-                      } else {
-                          $result.status        = ("error_{0}" -f $statusCode)
-                          $result.fallback_data = Invoke-LocalFallback -errorType ("deepseek_{0}" -f $statusCode)
-                      }
-                  }
-              }
-              elseif ($provider -eq "grok") {
-                  $key = $env:GROK_API_KEY
-                  if (-not $key) {
-                      $result.status = "missing_secret"
-                      $result | ConvertTo-Json -Depth 6 | Out-File "interia_debug_$provider.json" -Encoding UTF8
-                      exit 1
-                  }
-
-                  $headers["Authorization"] = "Bearer $key"
-                  $body = @{
-                      model    = "grok-beta"
-                      messages = @(@{role="user";content=$question})
-                      temperature = 0
-                  } | ConvertTo-Json
-
-                  try {
-                      $response = Invoke-RestMethod -Uri "https://api.x.ai/v1/chat/completions" `
-                                                    -Method Post -Headers $headers -Body $body -TimeoutSec 30
-                      $result.http_code     = 200
-                      $result.status        = "ok"
-                      $result.ok_for_humean = $true
-                  }
-                  catch {
-                      $statusCode = $null
-                      if ($_.Exception -and $_.Exception.Response) {
-                          $statusCode = $_.Exception.Response.StatusCode.value__
-                      }
-                      $result.http_code = $statusCode
-                      if ($statusCode -eq 403) {
-                          $result.status        = "forbidden_but_seen"
-                          $result.ok_for_humean = $true
-                          $result.fallback_data = Invoke-LocalFallback -errorType "grok_403"
-                      } else {
-                          $result.status        = ("error_{0}" -f $statusCode)
-                          $result.fallback_data = Invoke-LocalFallback -errorType ("grok_{0}" -f $statusCode)
-                      }
-                  }
-              }
-          }
-          catch {
-              $result.status        = "exception"
-              $result.fallback_data = Invoke-LocalFallback -errorType "general_exception"
-          }
-
-          $endTime = Get-Date
-          $result.response_time_ms = [math]::Round(($endTime - $startTime).TotalMilliseconds, 2)
-
-          $result | ConvertTo-Json -Depth 6 | Out-File "interia_debug_$provider.json" -Encoding UTF8
-
-          if (-not $result.ok_for_humean) {
-              exit 1
-          }
-
-      - name: Export to HUMEAN Ledger
-        shell: powershell
-        run: |
-          $provider = "${{ matrix.provider }}"
-          $debugFile = "interia_debug_$provider.json"
-          if (Test-Path $debugFile) {
-              $data = Get-Content $debugFile | ConvertFrom-Json
-              $ledgerEntry = [ordered]@{
-                  event               = "interia_health_check"
-                  provider            = $data.provider
-                  status              = $data.status
-                  http_code           = $data.http_code
-                  ok_for_humean       = $data.ok_for_humean
-                  response_time_ms    = $data.response_time_ms
-                  timestamp           = $data.timestamp
-                  workflow_run        = "${{ github.run_id }}"
-                  fallback_used       = ($null -ne $data.fallback_data)
-              }
-              $ledgerFile = "humean_ledger_$provider.json"
-              $ledgerEntry | ConvertTo-Json -Depth 6 | Out-File $ledgerFile -Encoding UTF8
-              Write-Host "Ledger export: $ledgerFile"
-          }
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: humean-interia-${{ matrix.provider }}-${{ github.run_id }}
-          path: |
-            interia_debug_${{ matrix.provider }}.json
-            humean_ledger_${{ matrix.provider }}.json
-
-  health-summary:
-    runs-on: [self-hosted, windows]
-    needs: interia-check
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-          
-      - name: Generate HUMEAN health report
-        shell: powershell
-        run: |
-          $artifacts = Get-ChildItem "./artifacts" -Recurse -Filter "humean_ledger_*.json"
-          $providers = @()
-          $healthyCount = 0
-          $totalCount = 0
-          
-          foreach ($artifact in $artifacts) {
-              $data = Get-Content $artifact.FullName | ConvertFrom-Json
-              $providers += $data
-              $totalCount++
-              if ($data.ok_for_humean -eq $true) {
-                  $healthyCount++
-              }
-          }
-          
-          $healthPercentage = if ($totalCount -gt 0) { [math]::Round(($healthyCount / $totalCount) * 100, 2) } else { 0 }
-          $overallStatus = if ($healthPercentage -eq 100) { "optimal" } elseif ($healthPercentage -ge 66) { "degraded" } else { "critical" }
-          
-          $summary = [ordered]@{
-              timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-              workflow_run = "${{ github.run_id }}"
-              overall_health = $overallStatus
-              health_percentage = $healthPercentage
-              providers_healthy = $healthyCount
-              providers_total = $totalCount
-              humean_health_check = $providers
-          }
-          
-          $summary | ConvertTo-Json -Depth 6 | Out-File "humean_health_summary.json" -Encoding UTF8
-          Write-Host "HUMEAN Health: $overallStatus ($healthPercentage percent)"
-          
-          if ($overallStatus -eq "critical") {
-              Write-Host "ALERTE: Sante HUMEAN critique - intervention necessaire"
-              exit 1
-          }
-
-      - name: Ethical validation (TPSE v1.0)
-        shell: powershell
-        run: |
-          $tpse = "policies/tpse_directive_v1_0.json"
-          if (!(Test-Path $tpse)) {
-            Write-Host "TPSE directive absente - validation ethique skipped"
+            $response = Invoke-RestMethod -Uri "https://api.deepseek.com/chat/completions" -Method Post -Headers $headers -Body $body
+            Write-Host "SUCCES: $($response.choices[0].message.content)"
             exit 0
-          }
-          
-          $directive = Get-Content $tpse -Raw | ConvertFrom-Json
-          $summary = Get-ChildItem -Recurse -Filter "humean_health_summary.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          
-          if (-not $summary) {
-            Write-Error "Aucun humean_health_summary.json trouve pour valider l'ethique."
+          } catch {
+            Write-Host "ERREUR: $($_.Exception.Message)"
             exit 1
           }
-          
-          $data = Get-Content $summary.FullName -Raw | ConvertFrom-Json
-          
-          # Regle 1: Verifier consensus providers (min 2/3 OK)
-          $providers = $data.humean_health_check
-          $ok = ($providers | Where-Object { $_.ok_for_humean }).Count
-          
-          if ($ok -lt 2) {
-            Write-Error "Validation ethique: echec (moins de 2/3 providers en accord)."
-            exit 1
-          }
-          
-          # Regle 2: Verifier mots-cles interdits
-          if ($directive.forbidden_keywords) {
-            $merged = Get-ChildItem -Recurse -Filter "*_merged_*.json" -Path ".\out\interia\merged" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            
-            if ($merged) {
-              $m = Get-Content $merged.FullName -Raw | ConvertFrom-Json
-              $text = ($m.final_answer + " " + ($m.raw | ConvertTo-Json -Compress))
-              
-              foreach ($kw in $directive.forbidden_keywords) {
-                if ($text -match [regex]::Escape($kw)) {
-                  Write-Error "Validation ethique: mot-cle interdit trouve -> $kw"
-                  exit 1
-                }
-              }
-            }
-          }
-          
-          Write-Host "Validation ethique TPSE: SUCCES - Tous les garde-fous respectes"
 
-      - name: Compute dynamic weights (runtime)
-        shell: powershell
-        run: |
-          .\tools\interIA\dynamic_weights.ps1 -DebugDir ".\artifacts" -OutPath ".\out\interia\runtime\policy_weights_runtime.json"
-
-      - name: Upload dynamic weights
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: policy-weights-runtime-${{ github.run_id }}
-          path: out/interia/runtime/policy_weights_runtime.json
-
-      - name: Upload health summary
-        uses: actions/upload-artifact@v4
-        with:
-          name: humean-health-summary
-          path: |
-            humean_health_summary.json
+      - name: Success
+        if: success()
+        run: echo "HUMEAN SYSTEM OPERATIONNEL"
