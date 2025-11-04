@@ -11,7 +11,7 @@ jobs:
     runs-on: [self-hosted, windows]
     strategy:
       matrix:
-        provider: [openai, deepseek, grok]  # Tous les 3 providers réactivés
+        provider: [openai, deepseek, grok]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
