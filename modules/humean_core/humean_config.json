@@ -1,0 +1,20 @@
+﻿{
+    "humean_config": {
+        "version": "0.2",
+        "modules": {
+            "gateway": "operational",
+            "memory": "operational", 
+            "scheduler": "planned",
+            "ethics": "planned"
+        },
+        "energy_settings": {
+            "free_energy_threshold": 0.5,
+            "cognitive_load_limit": 0.8,
+            "memory_compression_interval": 100
+        },
+        "integration": {
+            "interia_bridge": "active",
+            "external_apis": "planned"
+        }
+    }
+}
